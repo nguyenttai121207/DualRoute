@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DualRoute.Tunnel/DualRoute.Tunnel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DualRoute.Tunnel.Tests/DualRoute.Tunnel.Tests.csproj" />
+  </Folder>
   <Project Path="src/GameNetworkOptimizer/GameNetworkOptimizer.csproj" />
   <Project Path="tests/GameNetworkOptimizer.Tests/GameNetworkOptimizer.Tests.csproj" />
 </Solution>

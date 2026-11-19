@@ -426,3 +426,9 @@ FodyWeavers.xsd
 #*.lscache
 
 data/*.csv
+
+# Tunnel secrets: commit only the fake example
+config.json
+config.*.json
+!config.example.json
+*.secrets.json
