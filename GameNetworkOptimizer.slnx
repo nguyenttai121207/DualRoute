@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/GameNetworkOptimizer/GameNetworkOptimizer.csproj" />
+  <Project Path="tests/GameNetworkOptimizer.Tests/GameNetworkOptimizer.Tests.csproj" />
+</Solution>
