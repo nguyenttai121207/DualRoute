@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using DualRoute.Tunnel;
@@ -46,7 +47,9 @@ public class LinuxTunTests
             Assert.True(tunInterface.OperationalStatus is OperationalStatus.Up or OperationalStatus.Unknown,
                 $"{tun.Name}: unexpected operational status {tunInterface.OperationalStatus}.");
             var properties = tunInterface.GetIPProperties();
-            Assert.Equal(Protocol.MaxPayloadSize, properties.GetIPv4Properties().Mtu);
+            // .NET can report MTU 0 for Linux TUN, so read the kernel's value from sysfs.
+            var mtuText = await File.ReadAllTextAsync($"/sys/class/net/{tun.Name}/mtu", deadline.Token);
+            Assert.Equal(Protocol.MaxPayloadSize, int.Parse(mtuText, CultureInfo.InvariantCulture));
             var address = Assert.Single(properties.UnicastAddresses,
                 a => a.Address.Equals(IPAddress.Parse("10.77.0.1")));
             Assert.Equal(24, address.PrefixLength);

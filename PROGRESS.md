@@ -97,3 +97,12 @@ Sau mỗi bước hoàn tất và test pass, cập nhật trạng thái, file, k
 - Windows: dotnet build GameNetworkOptimizer.slnx -c Release thành công, 0 warnings/errors; dotnet test GameNetworkOptimizer.slnx -c Release: 60 pass, 0 fail, 1 skip (Linux TUN).
 - File thay đổi: tests/DualRoute.Tunnel.Tests/LinuxTunTests.cs và PROGRESS.md.
 - Cần chạy lại test Linux bật riêng để xác nhận assertion mới và ICMP echo; chưa đánh dấu 2A Linux hoàn tất.
+
+## Theo dõi kiểm thử Linux TUN — đọc MTU từ sysfs
+
+- Người dùng xác nhận Ubuntu 192.168.1.200 đã qua kiểm tra tun0 và IP 10.77.0.1/24. GetIPv4Properties().Mtu trả 0, khiến assertion MTU kỳ vọng 1350 thất bại.
+- LinuxTunTests.cs chuyển sang đọc /sys/class/net/{tun.Name}/mtu bằng File.ReadAllTextAsync với CancellationToken, phân tích số bằng InvariantCulture và so sánh với Protocol.MaxPayloadSize (1350).
+- Giữ nguyên logic LinuxTunDevice.cs và các kiểm tra tên interface, trạng thái, IP/prefix, ICMP echo, cleanup.
+- Đã chạy trên Windows: dotnet build GameNetworkOptimizer.slnx -c Release đạt 0 warnings/errors; dotnet test GameNetworkOptimizer.slnx -c Release đạt 60 pass, 0 fail, 1 skip (Linux TUN thật).
+- File sửa: tests/DualRoute.Tunnel.Tests/LinuxTunTests.cs, PROGRESS.md.
+- Chưa chạy lại assertion sysfs và ICMP echo trên Ubuntu trong lượt sửa này. Lệnh xác minh: sudo env DUALROUTE_TEST_LINUX_TUN=1 dotnet test tests/DualRoute.Tunnel.Tests -c Release --filter Category=LinuxTun.
