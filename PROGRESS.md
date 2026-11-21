@@ -87,3 +87,13 @@ Không sửa Configuration.cs/Protocol.cs/Transport.cs/SecureSession.cs, không 
 | Phase 5 VPS Singapore/bằng chứng | Chưa triển khai |
 
 Sau mỗi bước hoàn tất và test pass, cập nhật trạng thái, file, kết quả theo nền tảng và phần chưa kiểm chứng tại đây; không ghi “đạt” cho bước chưa được chạy thực tế.
+
+## Theo dõi kiểm thử Linux TUN — sửa assertion
+
+- Người dùng đã chạy DUALROUTE_TEST_LINUX_TUN=1 trên Ubuntu 192.168.1.200: xác nhận tạo tun0 (Index=3) và dọn sạch khi tắt; test dừng ở assertion tìm interface/MTU, chưa xác nhận ICMP echo hai chiều.
+- Rà soát LinuxTunDevice.cs: đã gọi ip address add 10.77.0.1/24 và ip link set dev tun0 mtu Protocol.MaxPayloadSize up; không thay mã runtime.
+- Sửa duy nhất test LinuxTunTests.cs: tách tìm đúng một interface theo tên, chấp nhận OperationalStatus.Up hoặc Unknown, kiểm tra MTU riêng và thêm kiểm tra IP 10.77.0.1 với PrefixLength=24.
+- Assertion cũ không kiểm tra OperationalStatus, nên chưa kết luận Unknown là nguyên nhân gốc. Assertion mới phân biệt rõ lỗi thiếu interface, trạng thái, MTU hay IP/prefix; vẫn giữ yêu cầu MTU 1350.
+- Windows: dotnet build GameNetworkOptimizer.slnx -c Release thành công, 0 warnings/errors; dotnet test GameNetworkOptimizer.slnx -c Release: 60 pass, 0 fail, 1 skip (Linux TUN).
+- File thay đổi: tests/DualRoute.Tunnel.Tests/LinuxTunTests.cs và PROGRESS.md.
+- Cần chạy lại test Linux bật riêng để xác nhận assertion mới và ICMP echo; chưa đánh dấu 2A Linux hoàn tất.

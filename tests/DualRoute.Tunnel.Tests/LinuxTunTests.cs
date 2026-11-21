@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Net;
 using System.Net.NetworkInformation;
 using DualRoute.Tunnel;
 using Xunit;
@@ -40,8 +41,15 @@ public class LinuxTunTests
             config.ClientId, Convert.FromBase64String(config.PskBase64));
         try
         {
-            Assert.Contains(NetworkInterface.GetAllNetworkInterfaces(), n => n.Name == tun.Name &&
-                n.GetIPProperties().GetIPv4Properties().Mtu == Protocol.MaxPayloadSize);
+            var tunInterface = Assert.Single(NetworkInterface.GetAllNetworkInterfaces(), n => n.Name == tun.Name);
+            // Linux TUN can report UNKNOWN even after `ip link set ... up` succeeds.
+            Assert.True(tunInterface.OperationalStatus is OperationalStatus.Up or OperationalStatus.Unknown,
+                $"{tun.Name}: unexpected operational status {tunInterface.OperationalStatus}.");
+            var properties = tunInterface.GetIPProperties();
+            Assert.Equal(Protocol.MaxPayloadSize, properties.GetIPv4Properties().Mtu);
+            var address = Assert.Single(properties.UnicastAddresses,
+                a => a.Address.Equals(IPAddress.Parse("10.77.0.1")));
+            Assert.Equal(24, address.PrefixLength);
             await client.ConnectAsync(deadline.Token);
             var packet = TunForwarderTests.Packet(size: 28);
             packet[8] = 64; packet[9] = 1;
