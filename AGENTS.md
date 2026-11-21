@@ -17,6 +17,7 @@ Phase 1 xong. Phase 2 gồm 2A Server TUN → 2B Client Wintun → 2C Route → 
 3. Diff nhỏ nhất đủ chạy. Không refactor ngoài phạm vi. Commit riêng cho từng bước, không dùng lệnh git phá hủy.
 4. Chạy `dotnet build GameNetworkOptimizer.slnx -c Release` và `dotnet test GameNetworkOptimizer.slnx -c Release`. Nếu môi trường không chạy được, nói rõ phần nào CHƯA kiểm chứng; tuyệt đối không báo pass khi chưa chạy.
 5. Báo cáo cuối: file đã đổi, kết quả build/test, lệnh test thủ công, những gì chưa kiểm chứng.
+6. Sau khi hoàn thành và test pass mỗi bước 2A → 2E, Phase 3, 4, 5, tự động cập nhật PROGRESS.md trong cùng đợt thay đổi: trạng thái, ngày/mốc/commit nếu có, danh sách file tạo/sửa, lệnh và kết quả build/test (pass/fail/skip, nền tảng), kiểm thử thủ công và phần chưa kiểm chứng. Không chờ yêu cầu nhắc lại. Phân biệt kết quả tự chạy với kết quả do người dùng xác nhận; không đánh dấu Linux/VPS đã đạt chỉ vì tests Windows pass.
 
 ## Phong cách code
 - Ngắn, thẳng, ưu tiên BCL và thành phần có sẵn: `IDatagramTransport`, `TunnelServer`/`TunnelClient`, `TunnelOptions`, `ServerConfiguration`, `TimeProvider`, `Channel<T>`. Chỉ thêm abstraction khi có ≥2 implementation hoặc cần cho test (`ITunDevice`: Linux, Wintun, in-memory).
@@ -35,7 +36,7 @@ Kiểm tra: độ dài ≥ 20, version == 4, IHL hợp lệ, Total Length ≤ s�
 - Process ngoài (`ip`, `route`, `netsh`) chỉ ở bước setup/cleanup: `ArgumentList`, không qua shell, có timeout, kiểm tra exit code. Ưu tiên API (IP Helper, `NetworkInterface`) khi rẻ.
 
 ## Bẫy đã biết
-- Client Phase 1 chưa nhận DATA từ server; `SendDataAsync` giữ khóa `operation` trong lúc KEEPALIVE; hàng đợi DATA server chỉ 64 chỗ và drop khi đầy.
+- Từ 2A: DATA client được phân kênh không chặn; SendDataAsync không giữ khóa điều khiển. Hàng đợi DATA client/server vẫn chỉ 64 chỗ, drop khi đầy. Khi chạy TUN, TunForwarder là bên đọc duy nhất của TunnelServer.ReceivedData.
 - Linux: `read()` trên tun không hủy được; dùng nonblocking + `poll` timeout. Windows: đọc Wintun bằng `WintunGetReadWaitEvent`, không chặn thread pool; `wintun.dll` x64 đặt cạnh exe; adapter dùng GUID cố định.
 - Socket UDP trên Windows: tắt `SIO_UDP_CONNRESET`, nếu không `ReceiveFrom` ném lỗi khi nhận ICMP port-unreachable.
 

@@ -1,8 +1,8 @@
-# DualRoute — Chẩn đoán mạng và giao thức tunnel Phase 1
+# DualRoute — Chẩn đoán mạng, tunnel Phase 1 và Server TUN 2A
 
 DualRoute là dự án xây dựng nền tảng chẩn đoán mạng và thử nghiệm đường truyền cho trò chơi trực tuyến trên Windows 11. Phiên bản hiện tại gồm một ứng dụng dòng lệnh đo ICMP và một thư viện giao thức UDP có mã hóa, xác thực, quản lý phiên và nhiều máy khách.
 
-**Trạng thái:** đã triển khai phần lõi tunnel Phase 1 và các kiểm thử cục bộ. Chưa có ứng dụng tunnel server/client độc lập, chưa chuyển tiếp lưu lượng Internet hay trò chơi và chưa kiểm chứng triển khai Linux/VPS. Không có bằng chứng rằng phiên bản này cải thiện ping hoặc mất gói của Valorant.
+**Trạng thái:** đã triển khai phần lõi tunnel Phase 1 và bước 2A (Linux TUN, chuyển tiếp DATA hai chiều), có kiểm thử cục bộ bằng TUN giả. Xem [PROGRESS.md](PROGRESS.md) để biết nền tảng đã kiểm chứng. Chưa có ứng dụng tunnel server/client độc lập, chưa chuyển tiếp lưu lượng Internet hay trò chơi và chưa kiểm chứng triển khai Linux/VPS. Không có bằng chứng rằng phiên bản này cải thiện ping hoặc mất gói của Valorant.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -110,7 +110,7 @@ Các trường số nguyên dùng thứ tự byte big-endian, nghĩa là byte c�
 
 Protocol.Version bằng 1; MaxDatagramSize bằng 1400 byte; MaxPayloadSize bằng 1350 byte. Gói quá lớn, quá ngắn, sai phiên bản hoặc sai loại bị từ chối. HELLO được đệm bằng byte 0 đến kích thước HELLO_ACK để phản hồi bắt tay không lớn hơn yêu cầu.
 
-DATA hiện đi từ client đến server qua SendDataAsync; ứng dụng tích hợp đọc TunnelServer.ReceivedData. Server không chuyển tiếp nội dung này ra Internet. Chiều server về client hiện phục vụ phản hồi điều khiển đã mã hóa.
+DATA hiện đi từ client đến server qua SendDataAsync; ứng dụng tích hợp đọc TunnelServer.ReceivedData. Ở đường chạy Phase 1 không có TUN, server chỉ công bố DATA thô. Từ 2A, overload RunAsync có ITunDevice chuyển tiếp IPv4 hợp lệ vào TUN và mã hóa gói trả về đúng client; TunnelClient.ReceivedData công bố DATA nhận được. Không có ứng dụng client Wintun hoặc chương trình host tunnel độc lập.
 
 ## 6. Bắt tay và mã hóa
 
@@ -254,7 +254,7 @@ dotnet test GameNetworkOptimizer.slnx -c Release
 dotnet test tests/DualRoute.Tunnel.Tests -c Release --filter Category=Integration
 ~~~
 
-Bộ kiểm thử hiện có **37 ca**: 12 ca Network Monitor và 25 ca tunnel, tính cả các trường hợp dữ liệu của Theory.
+Bộ kiểm thử hiện có **61 ca**: 12 ca Network Monitor và 49 ca tunnel, tính cả các trường hợp dữ liệu của Theory. Trên Windows: 60 pass, 1 skip (Linux TUN thật); 38 ca nền tảng Phase 1 bao gồm bản vá heartbeat vẫn pass.
 
 - Network Monitor: thống kê RTT, P95, jitter, tỷ lệ mất phản hồi, spike, tập rỗng, timeout/thất bại, kiểm tra tùy chọn và ghi CSV.
 - Tunnel: định dạng/big-endian, giới hạn kích thước, HMAC, dẫn xuất khóa, mã hóa, gói bị sửa, số thứ tự, chống phát lại, giới hạn/hết hạn phiên chờ, thay phiên, cách ly client, KEEPALIVE, PROBE, hàng đợi và dừng tác vụ.
@@ -265,14 +265,14 @@ Các kiểm thử không cần phiên chơi Valorant, khóa thật, VPS hay ping
 
 ## 13. Trạng thái triển khai và giới hạn
 
-Đã có CLI ICMP, CSV, thư viện tunnel Phase 1, cấu hình mẫu và kiểm thử nhiều client trên Windows loopback. Chưa kiểm chứng Linux/VPS, NAT thực tế hoặc vận hành tải kéo dài.
+Đã có CLI ICMP, CSV, thư viện tunnel Phase 1, bước 2A và kiểm thử nhiều client trên Windows loopback/TUN giả. Người dùng xác nhận nền tảng Phase 1 (38 tests) đã pass trên Ubuntu LAN; Linux TUN thật của 2A, NAT thực tế, VPS và tải kéo dài chưa được kiểm chứng trong lượt triển khai 2A.
 
 Các giới hạn cần lưu ý:
 
 - PSK không cung cấp forward secrecy: lộ PSK có thể ảnh hưởng bí mật phiên đã ghi lại; người có PSK có thể giả mạo client tương ứng.
 - Chưa có giới hạn tần suất bắt tay theo từng client; client có PSK hợp lệ có thể chiếm dung lượng phiên chờ hữu hạn.
 - Không tự truyền lại gói DATA hoặc HELLO bị mất; tự kết nối lại chỉ có một lần thử khi KEEPALIVE hết thời hạn.
-- Chưa có chương trình host tunnel độc lập, adapter ảo, chuyển tiếp dữ liệu, DATA ứng dụng hai chiều, tích hợp monitor/tunnel hoặc chứng nhận an toàn vận hành.
+- Có lớp Linux TUN và DATA hai chiều trong thư viện, nhưng chưa có host tunnel độc lập, Wintun, route Windows, tích hợp monitor/tunnel hoặc chứng nhận an toàn vận hành.
 - CLI và thông báo lỗi của ứng dụng vẫn dùng tiếng Anh; việc Việt hóa này chỉ áp dụng cho tài liệu.
 
 ## 14. Tính năng chưa hoàn thành và định hướng Phase 2
@@ -281,11 +281,48 @@ Các giới hạn cần lưu ý:
 
 1. Đóng gói chương trình server/client riêng và quy trình quản lý cấu hình bí mật.
 2. Kiểm chứng Linux/VPS, NAT, thời gian chạy dài và tải nhiều client; rà soát an ninh trước khi triển khai rộng.
-3. Thiết kế luồng DATA hai chiều, chính sách chuyển tiếp và kiểm soát truy cập.
+3. Tích hợp luồng DATA hai chiều của 2A với Wintun (2B), rồi route (2C), CLI REPL (2D), thử game (2E).
 4. Hoàn thiện giám sát: thống kê có giới hạn bộ nhớ, median/P99, trạng thái sức khỏe, lịch sử và xuất JSON.
 5. Nghiên cứu tích hợp phép đo Direct/VPS tới cùng đích kiểm soát; xác định yêu cầu định tuyến và giao diện sau khi có dữ liệu kiểm chứng.
 
 Chuyển tuyến tự động, Multipath, FEC và WinUI 3 chưa được triển khai. Không suy diễn rằng Phase 1 hiện đã tối ưu lưu lượng trò chơi.
+
+
+## Bước 2A — Server Linux TUN và DATA hai chiều
+
+**Phạm vi:** chỉ thư viện, không có Wintun, client app, route Windows hoặc REPL. Giữ nguyên wire format/khóa Phase 1. MTU lấy duy nhất từ Protocol.MaxPayloadSize (1350), không đặt thành 1380.
+
+- ITunDevice tách thiết bị khỏi TunForwarder. TunnelServer.RunAsync(transport, tun, cancellationToken) sở hữu TUN và transport; không đọc ReceivedData từ nơi khác khi dùng overload này. Overload cũ vẫn giữ DATA thô và channel 64 để tương thích tests Phase 1.
+- Client → TUN: kiểm tra IPv4, IHL, Total Length khớp số byte, kích thước; Source IP phải đúng Virtual IP của client và session_id còn hiện hành. Gói sai bị bỏ im lặng, có bộ đếm.
+- TUN → client: kiểm tra IPv4 rồi tra Destination IP sang phiên hoạt động; mã hóa dưới khóa phiên, gửi qua cùng UDP transport tới endpoint của phiên. Không tự gia hạn idle chỉ vì server gửi.
+- TunnelClient có một vòng giải mã; DATA đi vào channel 64 bằng TryWrite, không await channel đầy; KEEPALIVE/PROBE dùng channel khác. SendDataAsync chỉ giữ khóa session ngắn để mã hóa, không chờ khóa điều khiển đang đợi phản hồi. Gói DATA quá lớn bị bỏ và đếm.
+- LinuxTunDevice hỗ trợ ABI Linux x64/arm64: mở /dev/net/tun nonblocking, tạo độc quyền tun0 với IFF_TUN/NO_PI/TUN_EXCL. Một worker chuyên dụng poll tối đa 50 ms/lần, có hàng đợi hữu hạn; hủy rồi chờ worker trước khi đóng fd. TUN không persistent nên đóng fd cuối cùng xóa thiết bị.
+- Setup gọi ip qua ArgumentList, không shell, timeout 5 giây, kiểm tra exit code và đóng fd nếu lỗi. Cấu hình 10.77.0.1/24, MTU lấy từ hằng số, UP. Không nhận tun0 có sẵn, không sửa NAT/firewall hoặc default route.
+- Khi một vòng UDP/TUN lỗi hoặc bị hủy: hủy các vòng còn lại, chờ kết thúc, giải phóng session, TUN và socket. Test thiết bị giả kiểm tra cả lỗi đọc, ghi bị chặn và MTU sai.
+
+### Kiểm thử thủ công trên Ubuntu
+
+Chạy trong bản checkout có code 2A với .NET 10 SDK, iproute2, /dev/net/tun và quyền root/CAP_NET_ADMIN. Không có tun0 của ứng dụng khác. Đọc trạng thái mạng trước, không tự bật/tắt:
+
+~~~bash
+sysctl net.ipv4.ip_forward
+sudo iptables -t nat -S POSTROUTING
+sudo ufw status verbose
+sudo iptables -S ufw-user-forward
+ip link show tun0
+dotnet build GameNetworkOptimizer.slnx -c Release
+dotnet test GameNetworkOptimizer.slnx -c Release
+sudo env DUALROUTE_TEST_LINUX_TUN=1 dotnet test tests/DualRoute.Tunnel.Tests -c Release --filter Category=LinuxTun
+ip link show tun0
+~~~
+
+Trước và sau test, ip link show tun0 phải báo không có thiết bị. Nếu đã có tun0 thì dừng và xác định chủ sở hữu; không xóa tùy tiện.
+
+Test Linux bật riêng tạo tun0, kiểm tra MTU và việc không thể mở lại cùng tên, gửi ICMP Echo Request hợp lệ qua client giả vào TUN, nhận Echo Reply từ kernel qua DATA mã hóa, rồi xác nhận tun0 bị xóa. Test không cần NAT/Internet, không tạo route Windows và không đo game. Mặc định test này được **skip**, kể cả trên Linux nếu chưa bật biến môi trường.
+
+**Chưa kiểm chứng:** chạy TUN thật/cleanup trên Ubuntu của người dùng, NAT/Internet, Wintun, game và chạy tải dài. Bước 2A chỉ đã qua kiểm thử Windows với thiết bị giả; không suy ra Linux runtime đã đạt từ kết quả đó.
+
+Nguồn ABI đã đối chiếu: [Linux if_tun.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/if_tun.h), [if.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/if.h), [poll.h](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/poll.h), [fcntl.h](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/fcntl.h).
 
 ## Giấy phép
 
