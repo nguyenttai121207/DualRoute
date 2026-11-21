@@ -67,7 +67,7 @@ public sealed class TunnelClient : IAsyncDisposable
         try
         {
             await ConnectCoreAsync(linked.Token);
-            heartbeat ??= HeartbeatAsync();
+            if (heartbeat is null || heartbeat.IsCompleted) heartbeat = HeartbeatAsync();
         }
         catch { SetState(ClientState.Failed); throw; }
         finally { operation.Release(); }

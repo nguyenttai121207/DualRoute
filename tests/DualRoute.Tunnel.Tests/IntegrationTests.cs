@@ -133,6 +133,57 @@ public class IntegrationTests
     }
 
     [Fact]
+    public async Task ExplicitReconnectAfterFailureRestartsHeartbeatAndPreventsIdleExpiry()
+    {
+        var config = ProtocolTests.Client();
+        var clock = new ManualTime();
+        var network = new FakeNetwork();
+        var serverTransport = network.Bind(1235);
+        var options = new TunnelOptions();
+        using var server = new TunnelServer(new([config]), options, clock);
+        using var stop = new CancellationTokenSource(Limit);
+        var running = server.RunAsync(serverTransport, stop.Token);
+        await using var client = new TunnelClient(network.Bind(1234), serverTransport.LocalEndpoint,
+            config.ClientId, Convert.FromBase64String(config.PskBase64), options, clock);
+        try
+        {
+            await client.ConnectAsync(stop.Token).WaitAsync(Limit);
+            await Until(() => clock.TimerCount == 2);
+            network.Drop = true;
+            var sends = network.Sends;
+            clock.Advance(options.KeepaliveInterval);
+            await Until(() => network.Sends > sends && clock.TimerCount == 2);
+            sends = network.Sends;
+            clock.Advance(options.ResponseTimeout + TimeSpan.FromSeconds(1));
+            await Until(() => client.State == ClientState.Reconnecting && network.Sends > sends);
+            clock.Advance(options.HandshakeTimeout + TimeSpan.FromSeconds(1));
+            await Until(() => client.State == ClientState.Failed && clock.TimerCount == 1);
+
+            network.Drop = false;
+            await client.ConnectAsync(stop.Token).WaitAsync(Limit);
+            Assert.Equal(ClientState.Connected, client.State);
+            var reconnectedAt = clock.GetTimestamp();
+
+            // Advance in keepalive-sized steps so each response can complete before the next deadline.
+            while (clock.GetElapsedTime(reconnectedAt) <= options.IdleTimeout)
+            {
+                sends = network.Sends;
+                clock.Advance(options.KeepaliveInterval);
+                await Until(() => network.Sends >= sends + 2 && clock.TimerCount == 2);
+                server.Sweep();
+                Assert.Equal(1, server.SessionCount);
+                Assert.Equal(ClientState.Connected, client.State);
+            }
+        }
+        finally
+        {
+            await client.DisposeAsync().AsTask().WaitAsync(Limit);
+            stop.Cancel();
+            await running.WaitAsync(Limit);
+        }
+    }
+
+    [Fact]
     public async Task CancellationInterruptsConnectAndServerReceive()
     {
         var config = ProtocolTests.Client(); var network = new FakeNetwork();
