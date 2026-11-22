@@ -8,7 +8,7 @@ namespace DualRoute.Tunnel;
 
 public enum ClientState { Connecting, Connected, Reconnecting, Failed }
 
-/// <summary>One receive owner. Public probe/send calls are serialized; keepalives reconnect automatically.</summary>
+/// <summary>One decrypting receive owner; DATA never waits for a control response.</summary>
 public sealed class TunnelClient : IAsyncDisposable
 {
     private readonly IDatagramTransport transport;
@@ -19,7 +19,14 @@ public sealed class TunnelClient : IAsyncDisposable
     private readonly TimeProvider time;
     private readonly SemaphoreSlim operation = new(1, 1);
     private readonly CancellationTokenSource stop = new();
-    private readonly Channel<byte[]> incoming = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = true });
+    private readonly object sessionGate = new();
+    private sealed record ControlMessage(SecureSession? Session, PacketType Type, byte[] Payload);
+    private readonly Channel<ReceivedData> data = Channel.CreateBounded<ReceivedData>(
+        new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.Wait });
+    public ChannelReader<ReceivedData> ReceivedData => data.Reader;
+    private long droppedData;
+    public long DroppedDataPackets => Interlocked.Read(ref droppedData);
+    private readonly Channel<ControlMessage> incoming = Channel.CreateBounded<ControlMessage>(new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = true });
     private readonly Task receiver;
     private Task? heartbeat;
     private SecureSession? session;
@@ -49,15 +56,32 @@ public sealed class TunnelClient : IAsyncDisposable
                 try
                 {
                     var datagram = await transport.ReceiveAsync(stop.Token);
-                    if (datagram.Remote.Equals(server) && datagram.Bytes.Length <= Protocol.MaxDatagramSize)
-                        incoming.Writer.TryWrite(datagram.Bytes);
+                    if (!datagram.Remote.Equals(server) || datagram.Bytes.Length > Protocol.MaxDatagramSize) continue;
+                    lock (sessionGate)
+                    {
+                        if (session is null)
+                        {
+                            if (datagram.Bytes.Length == Protocol.AckSize)
+                                incoming.Writer.TryWrite(new(null, PacketType.HelloAck, datagram.Bytes));
+                        }
+                        else if (session.TryDecrypt(datagram.Bytes, out var header, out var payload))
+                        {
+                            if (header.Type == PacketType.Data)
+                            {
+                                // Never await a full DATA queue: control replies must keep flowing.
+                                if (!data.Writer.TryWrite(new(id, header.SessionId, payload)))
+                                    Interlocked.Increment(ref droppedData);
+                            }
+                            else incoming.Writer.TryWrite(new(session, header.Type, payload));
+                        }
+                    }
                 }
                 catch (SocketException) { await Task.Delay(TimeSpan.FromMilliseconds(25), time, stop.Token); }
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (Exception ex) { incoming.Writer.TryComplete(ex); SetState(ClientState.Failed); }
-        finally { incoming.Writer.TryComplete(); }
+        finally { incoming.Writer.TryComplete(); data.Writer.TryComplete(); }
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
@@ -67,14 +91,19 @@ public sealed class TunnelClient : IAsyncDisposable
         try
         {
             await ConnectCoreAsync(linked.Token);
-            heartbeat ??= HeartbeatAsync();
+            if (heartbeat is null || heartbeat.IsCompleted) heartbeat = HeartbeatAsync();
         }
         catch { SetState(ClientState.Failed); throw; }
         finally { operation.Release(); }
     }
     private async Task ConnectCoreAsync(CancellationToken ct)
     {
-        session?.Dispose(); session = null;
+        lock (sessionGate)
+        {
+            session?.Dispose(); session = null;
+            if (State != ClientState.Reconnecting) SetState(ClientState.Connecting);
+            while (data.Reader.TryRead(out _)) { }
+        }
         while (incoming.Reader.TryRead(out _)) { }
         using var handshake = new ClientHandshake(id, psk);
         using var deadline = new CancellationTokenSource(options.HandshakeTimeout, time);
@@ -82,11 +111,16 @@ public sealed class TunnelClient : IAsyncDisposable
         await transport.SendAsync(handshake.CreateHello(), server, linked.Token);
         try
         {
-            while (session is null)
+            while (true)
             {
-                var packet = await incoming.Reader.ReadAsync(linked.Token);
-                session = handshake.AcceptAck(packet, out var ip);
-                if (session is not null) VirtualIp = ip;
+                var message = await incoming.Reader.ReadAsync(linked.Token);
+                lock (sessionGate)
+                {
+                    session = handshake.AcceptAck(message.Payload, out var ip);
+                    if (session is null) continue;
+                    VirtualIp = ip;
+                    break;
+                }
             }
             await ExchangeAsync(PacketType.Keepalive, [], linked.Token);
             SetState(ClientState.Connected);
@@ -98,15 +132,22 @@ public sealed class TunnelClient : IAsyncDisposable
     {
         using var deadline = new CancellationTokenSource(options.ResponseTimeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
-        await transport.SendAsync(session!.Encrypt(type, payload), server, linked.Token);
+        SecureSession current;
+        byte[] encrypted;
+        lock (sessionGate)
+        {
+            current = session ?? throw new InvalidOperationException("Tunnel is not connected.");
+            encrypted = current.Encrypt(type, payload);
+        }
+        await transport.SendAsync(encrypted, server, linked.Token);
         try
         {
             while (true)
             {
-                var packet = await incoming.Reader.ReadAsync(linked.Token);
-                if (!session.TryDecrypt(packet, out var header, out var body)) continue;
-                if (type == PacketType.Keepalive && header.Type == type && body.Length == 0) return body;
-                if (type == PacketType.Probe && header.Type == PacketType.ProbeReply && body.AsSpan().SequenceEqual(payload)) return body;
+                var message = await incoming.Reader.ReadAsync(linked.Token);
+                if (!ReferenceEquals(message.Session, current)) continue;
+                if (type == PacketType.Keepalive && message.Type == type && message.Payload.Length == 0) return message.Payload;
+                if (type == PacketType.Probe && message.Type == PacketType.ProbeReply && message.Payload.AsSpan().SequenceEqual(payload)) return message.Payload;
             }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new TimeoutException("Tunnel response timed out."); }
@@ -132,13 +173,17 @@ public sealed class TunnelClient : IAsyncDisposable
     public async Task SendDataAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stop.Token);
-        await operation.WaitAsync(linked.Token);
-        try
+        linked.Token.ThrowIfCancellationRequested();
+        if (payload.Length > Protocol.MaxPayloadSize)
+        { Interlocked.Increment(ref droppedData); return; }
+        byte[] encrypted;
+        lock (sessionGate)
         {
-            if (State != ClientState.Connected) throw new InvalidOperationException("Tunnel is not connected.");
-            await transport.SendAsync(session!.Encrypt(PacketType.Data, payload.Span), server, linked.Token);
+            if (State != ClientState.Connected || session is null)
+                throw new InvalidOperationException("Tunnel is not connected.");
+            encrypted = session.Encrypt(PacketType.Data, payload.Span);
         }
-        finally { operation.Release(); }
+        await transport.SendAsync(encrypted, server, linked.Token);
     }
 
     private async Task HeartbeatAsync()
@@ -175,18 +220,34 @@ public sealed class TunnelClient : IAsyncDisposable
         await operation.WaitAsync();
         try
         {
-            if (session is not null)
+            byte[]? disconnect = null;
+            try
             {
-                using var deadline = new CancellationTokenSource(options.ResponseTimeout, time);
-                try { await transport.SendAsync(session.Encrypt(PacketType.Disconnect, []), server, deadline.Token); }
-                catch (Exception ex) when (ex is OperationCanceledException or SocketException or InvalidOperationException) { }
-                session.Dispose();
+                lock (sessionGate)
+                    if (session is not null) disconnect = session.Encrypt(PacketType.Disconnect, []);
+                if (disconnect is not null)
+                {
+                    using var deadline = new CancellationTokenSource(options.ResponseTimeout, time);
+                    await transport.SendAsync(disconnect, server, deadline.Token);
+                }
             }
-            await receiver;
-            await transport.DisposeAsync();
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(psk);
-            SetState(ClientState.Failed);
+            catch (Exception ex) when (ex is OperationCanceledException or SocketException or InvalidOperationException) { }
         }
-        finally { operation.Release(); stop.Dispose(); }
+        finally
+        {
+            try { await receiver; }
+            finally
+            {
+                lock (sessionGate) { session?.Dispose(); session = null; }
+                try { await transport.DisposeAsync(); }
+                finally
+                {
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(psk);
+                    SetState(ClientState.Failed);
+                    operation.Release();
+                    stop.Dispose();
+                }
+            }
+        }
     }
 }

@@ -112,36 +112,85 @@ public sealed class TunnelServer : IDisposable
         }
     }
 
-    /// <summary>Owns and disposes the supplied transport. Cancellation drains no unbounded queue.</summary>
-    public async Task RunAsync(IDatagramTransport transport, CancellationToken cancellationToken)
+    internal bool CanForwardToTun(ReceivedData message, IPAddress source)
     {
-        await using (transport)
+        lock (gate)
         {
-            using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var maintenance = MaintainAsync(stop.Token);
+            Sweep();
+            return !disposed && active.TryGetValue(message.ClientId, out var entry) &&
+                entry.Crypto.SessionId == message.SessionId && clients[message.ClientId].Ip.Equals(source);
+        }
+    }
+
+    internal Datagram? PrepareData(IPAddress destination, byte[] payload)
+    {
+        lock (gate)
+        {
+            if (disposed || payload.Length > Protocol.MaxPayloadSize) return null;
+            Sweep();
+            foreach (var (id, entry) in active)
+                if (clients[id].Ip.Equals(destination))
+                    return new(entry.Crypto.Encrypt(PacketType.Data, payload), entry.Remote);
+            return null;
+        }
+    }
+
+    /// <summary>Owns the supplied transport; preserves the Phase 1 raw DATA interface.</summary>
+    public Task RunAsync(IDatagramTransport transport, CancellationToken cancellationToken) =>
+        RunCoreAsync(transport, null, cancellationToken);
+
+    /// <summary>Owns transport and TUN; this forwarder is the sole ReceivedData consumer.</summary>
+    public Task RunAsync(IDatagramTransport transport, ITunDevice tun, CancellationToken cancellationToken) =>
+        RunCoreAsync(transport, tun, cancellationToken);
+
+    private async Task RunCoreAsync(IDatagramTransport transport, ITunDevice? tun, CancellationToken cancellationToken)
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var tasks = new List<Task>();
+        try
+        {
+            if (tun is not null && tun.Mtu != Protocol.MaxPayloadSize)
+                throw new ArgumentException("TUN MTU must equal Protocol.MaxPayloadSize.");
+            tasks.Add(ReceiveLoopAsync(transport, stop.Token));
+            tasks.Add(MaintainAsync(stop.Token));
+            if (tun is not null) tasks.Add(new TunForwarder(this, tun, transport).RunAsync(stop.Token));
+            await Task.WhenAny(tasks);
+        }
+        finally
+        {
+            stop.Cancel();
             try
             {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        var datagram = await transport.ReceiveAsync(cancellationToken);
-                        var reply = Process(datagram);
-                        if (reply is not null) await transport.SendAsync(reply, datagram.Remote, cancellationToken);
-                    }
-                    catch (SocketException) { Interlocked.Increment(ref dropped); await Task.Delay(TimeSpan.FromMilliseconds(25), time, cancellationToken); }
-                }
+                try { await Task.WhenAll(tasks); }
+                catch (OperationCanceledException) when (tasks.All(t => t.IsCanceled || t.IsCompletedSuccessfully)) { }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
             finally
             {
-                stop.Cancel();
-                try { await maintenance; }
-                catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
                 Dispose();
+                try { if (tun is not null) await tun.DisposeAsync(); }
+                finally { await transport.DisposeAsync(); }
             }
         }
     }
+
+    private async Task ReceiveLoopAsync(IDatagramTransport transport, CancellationToken ct)
+    {
+        while (true)
+        {
+            try
+            {
+                var datagram = await transport.ReceiveAsync(ct);
+                var reply = Process(datagram);
+                if (reply is not null) await transport.SendAsync(reply, datagram.Remote, ct);
+            }
+            catch (SocketException)
+            {
+                Interlocked.Increment(ref dropped);
+                await Task.Delay(TimeSpan.FromMilliseconds(25), time, ct);
+            }
+        }
+    }
+
     private async Task MaintainAsync(CancellationToken ct)
     {
         while (true)
