@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'"><IsTestProject>false</IsTestProject></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../DualRoute.Tunnel.Tests/TestTransport.cs" Link="Fixtures/TestTransport.cs" />
+    <Compile Include="../DualRoute.Tunnel.Tests/FakeTunDevice.cs" Link="Fixtures/FakeTunDevice.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all" />
+    <ProjectReference Include="../../src/DualRoute.Client.Windows/DualRoute.Client.Windows.csproj" />
+    <ProjectReference Include="../DualRoute.Wintun.TestHost/DualRoute.Wintun.TestHost.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

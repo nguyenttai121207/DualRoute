@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DualRoute.Tunnel/DualRoute.Tunnel.csproj" />
+    <InternalsVisibleTo Include="DualRoute.Client.Windows.Tests" />
+    <InternalsVisibleTo Include="DualRoute.Wintun.TestHost" />
+    <None Update="Native/wintun.dll" Link="wintun.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Native/LICENSE.txt" Link="Wintun-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

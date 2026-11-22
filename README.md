@@ -2,7 +2,7 @@
 
 DualRoute là dự án xây dựng nền tảng chẩn đoán mạng và thử nghiệm đường truyền cho trò chơi trực tuyến trên Windows 11. Phiên bản hiện tại gồm một ứng dụng dòng lệnh đo ICMP và một thư viện giao thức UDP có mã hóa, xác thực, quản lý phiên và nhiều máy khách.
 
-**Trạng thái:** đã triển khai phần lõi tunnel Phase 1 và bước 2A (Linux TUN, chuyển tiếp DATA hai chiều), có kiểm thử cục bộ bằng TUN giả. Xem [PROGRESS.md](PROGRESS.md) để biết nền tảng đã kiểm chứng. Chưa có ứng dụng tunnel server/client độc lập, chưa chuyển tiếp lưu lượng Internet hay trò chơi và chưa kiểm chứng triển khai Linux/VPS. Không có bằng chứng rằng phiên bản này cải thiện ping hoặc mất gói của Valorant.
+**Trạng thái:** Phase 1 và 2A đã đạt; người dùng xác nhận Ubuntu LAN 61/61 tests và cleanup tun0 ngày 2026-11-21. Thư viện Windows Wintun 2B đã triển khai, đang chờ nghiệm thu adapter thật bằng Administrator. Xem [PROGRESS.md](PROGRESS.md) để biết nền tảng đã kiểm chứng. Chưa có ứng dụng tunnel server/client độc lập hoặc chuyển tiếp game/Internet; VPS chưa kiểm chứng.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -208,7 +208,7 @@ cd DualRoute
 dotnet restore GameNetworkOptimizer.slnx
 ~~~
 
-Tunnel Core dùng API không phụ thuộc Windows và nhắm net10.0; điều này chưa đồng nghĩa đã kiểm chứng chạy trên Linux hoặc VPS.
+Tunnel Core dùng API không phụ thuộc Windows và nhắm net10.0; người dùng đã xác nhận bộ 2A trên Ubuntu LAN, chưa kiểm chứng VPS. Thư viện client Wintun riêng nhắm net10.0-windows.
 
 ## 10. Biên dịch và chạy
 
@@ -254,7 +254,7 @@ dotnet test GameNetworkOptimizer.slnx -c Release
 dotnet test tests/DualRoute.Tunnel.Tests -c Release --filter Category=Integration
 ~~~
 
-Bộ kiểm thử hiện có **61 ca**: 12 ca Network Monitor và 49 ca tunnel, tính cả các trường hợp dữ liệu của Theory. Trên Windows: 60 pass, 1 skip (Linux TUN thật); 38 ca nền tảng Phase 1 bao gồm bản vá heartbeat vẫn pass.
+Bộ kiểm thử nền tảng có **61 ca**: 12 ca Network Monitor và 49 ca tunnel, tính cả Theory. Bước 2B bổ sung project test Windows riêng; kết quả mới nhất và các ca skip được ghi trong PROGRESS.md. Trên Linux, project test Windows không được chạy; kiểm thử TUN Linux vẫn bật riêng như bên dưới.
 
 - Network Monitor: thống kê RTT, P95, jitter, tỷ lệ mất phản hồi, spike, tập rỗng, timeout/thất bại, kiểm tra tùy chọn và ghi CSV.
 - Tunnel: định dạng/big-endian, giới hạn kích thước, HMAC, dẫn xuất khóa, mã hóa, gói bị sửa, số thứ tự, chống phát lại, giới hạn/hết hạn phiên chờ, thay phiên, cách ly client, KEEPALIVE, PROBE, hàng đợi và dừng tác vụ.
@@ -265,14 +265,14 @@ Các kiểm thử không cần phiên chơi Valorant, khóa thật, VPS hay ping
 
 ## 13. Trạng thái triển khai và giới hạn
 
-Đã có CLI ICMP, CSV, thư viện tunnel Phase 1, bước 2A và kiểm thử nhiều client trên Windows loopback/TUN giả. Người dùng xác nhận nền tảng Phase 1 (38 tests) đã pass trên Ubuntu LAN; Linux TUN thật của 2A, NAT thực tế, VPS và tải kéo dài chưa được kiểm chứng trong lượt triển khai 2A.
+Đã có CLI ICMP, CSV, thư viện tunnel Phase 1, bước 2A và thư viện Wintun 2B. Người dùng xác nhận 61/61 tests của 2A trên Ubuntu LAN, gồm Linux TUN thật và cleanup; Codex không trực tiếp chạy Ubuntu. NAT thực tế, VPS, tải kéo dài và nghiệm thu Wintun thật vẫn chưa được xác minh.
 
 Các giới hạn cần lưu ý:
 
 - PSK không cung cấp forward secrecy: lộ PSK có thể ảnh hưởng bí mật phiên đã ghi lại; người có PSK có thể giả mạo client tương ứng.
 - Chưa có giới hạn tần suất bắt tay theo từng client; client có PSK hợp lệ có thể chiếm dung lượng phiên chờ hữu hạn.
 - Không tự truyền lại gói DATA hoặc HELLO bị mất; tự kết nối lại chỉ có một lần thử khi KEEPALIVE hết thời hạn.
-- Có lớp Linux TUN và DATA hai chiều trong thư viện, nhưng chưa có host tunnel độc lập, Wintun, route Windows, tích hợp monitor/tunnel hoặc chứng nhận an toàn vận hành.
+- Có Linux TUN, thư viện Wintun và DATA hai chiều; chưa có host tunnel độc lập, nghiệm thu Wintun native, route Windows, tích hợp monitor/tunnel hoặc chứng nhận an toàn vận hành.
 - CLI và thông báo lỗi của ứng dụng vẫn dùng tiếng Anh; việc Việt hóa này chỉ áp dụng cho tài liệu.
 
 ## 14. Tính năng chưa hoàn thành và định hướng Phase 2
@@ -281,7 +281,7 @@ Các giới hạn cần lưu ý:
 
 1. Đóng gói chương trình server/client riêng và quy trình quản lý cấu hình bí mật.
 2. Kiểm chứng Linux/VPS, NAT, thời gian chạy dài và tải nhiều client; rà soát an ninh trước khi triển khai rộng.
-3. Tích hợp luồng DATA hai chiều của 2A với Wintun (2B), rồi route (2C), CLI REPL (2D), thử game (2E).
+3. Nghiệm thu native Wintun (2B), rồi mới xét route (2C), CLI REPL (2D), thử game (2E).
 4. Hoàn thiện giám sát: thống kê có giới hạn bộ nhớ, median/P99, trạng thái sức khỏe, lịch sử và xuất JSON.
 5. Nghiên cứu tích hợp phép đo Direct/VPS tới cùng đích kiểm soát; xác định yêu cầu định tuyến và giao diện sau khi có dữ liệu kiểm chứng.
 
@@ -320,9 +320,126 @@ Trước và sau test, ip link show tun0 phải báo không có thiết bị. N�
 
 Test Linux bật riêng tạo tun0, kiểm tra MTU và việc không thể mở lại cùng tên, gửi ICMP Echo Request hợp lệ qua client giả vào TUN, nhận Echo Reply từ kernel qua DATA mã hóa, rồi xác nhận tun0 bị xóa. Test không cần NAT/Internet, không tạo route Windows và không đo game. Mặc định test này được **skip**, kể cả trên Linux nếu chưa bật biến môi trường.
 
-**Chưa kiểm chứng:** chạy TUN thật/cleanup trên Ubuntu của người dùng, NAT/Internet, Wintun, game và chạy tải dài. Bước 2A chỉ đã qua kiểm thử Windows với thiết bị giả; không suy ra Linux runtime đã đạt từ kết quả đó.
+**Nghiệm thu bổ sung:** người dùng xác nhận Ubuntu 192.168.1.200, .NET 10, bật DUALROUTE_TEST_LINUX_TUN=1: 61 PASS, 0 FAIL, 0 SKIP và cleanup tun0, ngày 2026-11-21. Đây là kết quả do người dùng xác nhận. NAT/Internet, Wintun thật, game và tải dài chưa được kiểm chứng.
 
 Nguồn ABI đã đối chiếu: [Linux if_tun.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/if_tun.h), [if.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/if.h), [poll.h](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/poll.h), [fcntl.h](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/fcntl.h).
+
+## Bước 2B — Thư viện Windows Wintun
+
+`DualRoute.Client.Windows` target `net10.0-windows`, dùng lại `ITunDevice`, `Ipv4Packet`,
+`TunnelClient` và `Protocol.MaxPayloadSize`. Không có CLI tunnel mới, routing game,
+host route VPS, NAT hoặc cleanup route. `DualRoute.Wintun.TestHost` chỉ là fixture
+integration test, không phải CLI sản phẩm và không phân phối cùng client.
+
+### Tích hợp và vòng đời
+
+Host phải chạy Windows AMD64 bằng process x64, quyền Administrator. Kết nối
+`TunnelClient` trước rồi gọi `WintunDevice.CreateAsync(client, cancellationToken)`.
+IP lấy từ `client.VirtualIp` trong HELLO_ACK có xác thực; chỉ nhận host trong
+10.77.0.0/24, loại .0, .1 và .255. Không hardcode IP client trong runtime.
+
+~~~csharp
+// client đã ConnectAsync thành công; host sở hữu client và token Ctrl+C.
+try
+{
+    await using var device = await WintunDevice.CreateAsync(client, cancellationToken);
+    await new ClientTunForwarder(client, device).RunAsync(cancellationToken);
+}
+finally { await client.DisposeAsync(); }
+~~~
+
+`ClientTunForwarder` là reader duy nhất của `client.ReceivedData` trong phiên này.
+Worker chuyên dụng chờ Wintun read event, tín hiệu ghi và stop; hai channel managed
+giới hạn 64. Receive copy sang managed memory rồi release native buffer trong finally.
+Allocate/copy/send không có await hoặc cancellation ở giữa; ring đầy thì drop/đếm.
+IPv4 malformed, non-IPv4 và packet vượt MTU bị drop/đếm. Không log payload/khóa.
+
+Vòng đời: journal Creating → CreateAdapter → xác minh identity/journal Created →
+StartSession → IP Helper đặt IP /24, MTU từ hằng số 1350, administrative UP → worker.
+Dispose: stop → join worker → EndSession → CloseAdapter → kiểm tra thiết bị biến mất →
+xóa journal. Dispose nhiều lần dùng cùng một tác vụ. Lời gọi native CreateAdapter
+không hủy tức thì; token được kiểm tra trước/sau, không bỏ mặc tác vụ tạo nền.
+
+Gán IP có thể tạo connected route do Windows quản lý. Bước này không gọi API thêm,
+sửa hoặc xóa route; không đặt gateway. Máy kiểm thử không nên có subnet 10.77.0.0/24
+đang dùng bởi VPN khác. Reconnect đổi virtual IP làm cầu nối dừng và yêu cầu tạo lại adapter.
+
+### DLL đã đóng gói
+
+Nguồn: https://www.wintun.net/builds/wintun-0.14.1.zip.
+ZIP đã được kiểm SHA-256 trước giải nén:
+`07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`.
+Chỉ lấy `wintun/bin/amd64/wintun.dll`, `wintun/include/wintun.h` và `wintun/LICENSE.txt`.
+Các file được giữ trong `src/DualRoute.Client.Windows/Native/`.
+DLL và giấy phép tự copy ra output/publish lần lượt thành `wintun.dll` và `Wintun-LICENSE.txt`.
+
+Runtime dùng đường dẫn tuyệt đối `AppContext.BaseDirectory/wintun.dll`, kiểm PE AMD64,
+hash DLL `E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE`, rồi
+LoadLibraryExW với DLL_LOAD_DIR và SYSTEM32. Không tìm DLL theo CWD/PATH, không tải mạng.
+Thiếu DLL/sai hash: khôi phục bản đóng gói chính thức; thiếu quyền: chạy host elevated.
+Module chỉ unload sau session/adapter; read event được mượn từ session, không CloseHandle.
+
+### Journal và recovery chỉ dành cho adapter
+
+`%ProgramData%/DualRoute/Wintun/wintun-state.json` độc lập với state.json Phase 3.
+Schema version 1 gồm Owner, AdapterGuid, OperationId, Name, Stage và InstanceId.
+GUID cố định; tên chứa operation ID ngẫu nhiên đã ghi trước khi tạo. Created bổ sung
+device instance thực tế. State không chứa PSK. Thư mục/file chỉ cho Administrators
+và SYSTEM ghi; owner/ACL không đáng tin hoặc reparse point khiến khởi tạo bị từ chối.
+File lock FileShare.None giữ đến khi cleanup xong, ngăn hai instance cùng sở hữu adapter.
+
+Mỗi lần ghi tạo file tạm mới, WriteThrough + Flush(true), rồi rename thay thế journal.
+Crash trước rename giữ bản cũ hợp lệ; file tạm không được dùng làm bằng chứng ownership.
+Cơ chế này không cam kết chống mọi sự cố mất điện/storage.
+
+CreateAsync luôn recovery journal trước khi tạo adapter mới. Recovery xác minh schema,
+GUID, tên có operation ID, Wintun hardware/type và InstanceId nếu đã ghi; không match
+thì từ chối xóa, giữ state. Không có adapter tương ứng thì xóa journal hợp lệ; chạy lại an toàn.
+Thiết bị còn sót đã xác minh được gỡ bằng SetupAPI DIF_REMOVE cho đúng instance.
+Không xóa driver chung và không mở rộng sang cleanup route/CLI/app recovery.
+
+Wintun 0.14.1 CloseAdapter gỡ adapter của handle CreateAdapter; CloseAdapter của
+OpenAdapter không phải thao tác xóa. Kill/crash không chạy finally; Windows có thể
+unplug software device nhưng còn PnP instance. Lần chạy tiếp theo recovery phần còn sót.
+Cleanup lỗi hoặc Windows yêu cầu reboot thì giữ journal và báo lỗi. Không tự xóa journal
+hay adapter lạ để ép chạy tiếp. Đóng process không đồng nghĩa đã nghiệm thu cleanup.
+
+### Kiểm thử Windows
+
+Unit tests dùng IWintunApi/IAdapterSystem giả; tái dùng fake TUN/transport hiện có qua
+source link, không sửa tests Phase 1/2A. Test DLL thực tế chỉ load/resolve export rồi unload,
+không tạo adapter. Integration thật mặc định skip, chạy tuần tự và cần Administrator:
+
+~~~powershell
+dotnet build GameNetworkOptimizer.slnx -c Release
+dotnet test GameNetworkOptimizer.slnx -c Release
+
+# PowerShell x64, Run as Administrator, trên máy/VM thử nghiệm:
+$env:DUALROUTE_TEST_WINTUN = '1'
+try {
+    dotnet test tests/DualRoute.Client.Windows.Tests -c Release --filter Category=Wintun
+} finally { Remove-Item Env:DUALROUTE_TEST_WINTUN }
+~~~
+
+Ca thật kiểm IP /24, MTU 1350, UP, UDP socket outbound qua Wintun rồi bơm phản hồi
+đúng IP/port về socket và cleanup. Không phụ thuộc inbound ICMP Echo trên profile Public;
+không đổi firewall hoặc thêm route. Policy chặn outbound UDP vẫn có thể làm test fail.
+Ca crash tạo
+test host có timeout, kill sau READY, recovery hai lần, xác minh adapter khác còn nguyên.
+Fixture dùng journal riêng trong TEMP, vẫn dùng GUID DualRoute: không chạy cùng client thật.
+Test host là process con chỉ trong kiểm thử, không thêm process vào đường chạy sản phẩm.
+
+Chưa nghiệm thu trên Administrator: IP Helper/SetupAPI, packet/cleanup thật và kill/restart.
+Reboot, đóng cửa sổ/Ctrl+C trên host thật, NAT/game/tải dài chưa kiểm chứng; không suy từ
+unit tests sang kết quả đó. Trước/sau thử thủ công, dùng Get-NetAdapter -IncludeHidden,
+Get-NetIPAddress và Get-NetIPInterface để kiểm tra đúng GUID, IP, MTU và thiết bị còn sót;
+Get-NetRoute chỉ để đối chiếu, không sửa route. Thử reboot riêng trên VM: kill host lúc
+READY → reboot → chạy lại cùng đường dẫn journal → dừng sạch → kiểm tra adapter biến mất.
+
+Nguồn native: [Wintun 0.14.1 header](https://git.zx2c4.com/wintun/tree/api/wintun.h?h=0.14.1),
+[Windows SDK netioapi.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/shared/netioapi.h),
+[SetupDiCallClassInstaller](https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdicallclassinstaller),
+[LoadLibraryExW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw).
 
 ## Giấy phép
 

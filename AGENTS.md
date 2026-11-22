@@ -3,7 +3,15 @@
 Nguồn chuẩn: `MVP_SCOPE_v3.md` (phạm vi), `README.md` §5–6 và `src/DualRoute.Tunnel/Protocol.cs` (giao thức). Không chép lại đặc tả ở đây; nếu mâu thuẫn, code Phase 1 thắng.
 
 ## Lộ trình
-Phase 1 xong. Phase 2 gồm 2A Server TUN → 2B Client Wintun → 2C Route → 2D CLI REPL → 2E thử game. Chỉ làm đúng bước được giao. Không làm state.json, CSV Test Mode, UI, auto-update, dò IP game.
+Phase 1 xong. Phase 2 gồm 2A Server TUN → 2B Client Wintun → 2C Route → 2D CLI REPL → 2E thử game. Chỉ làm đúng bước được giao. Không làm state.json tổng thể, CSV Test Mode, UI, auto-update, dò IP game. Ngoại lệ 2B được người dùng duyệt: wintun-state.json chỉ quản lý ownership/recovery adapter DualRoute.
+
+## Phase 2B — Windows Wintun
+- Thư viện net10.0-windows triển khai ITunDevice; không đổi core Linux/giao thức. ClientTunForwarder chỉ đọc TunnelClient.ReceivedData một nơi, dùng VirtualIp server cấp sau handshake; không dùng 10.77.0.1 cho client.
+- Chỉ Wintun 0.14.1 AMD64 chính thức, kiểm tra SHA-256 archive trước giải nén, giữ giấy phép. DLL cạnh exe, nạp đường dẫn tuyệt đối; không tìm theo CWD/PATH hoặc tải khi runtime.
+- Worker chuyên dụng; trả receive buffer đúng một lần, không await giữa allocate/send; dừng/join worker trước EndSession/CloseAdapter. Read event thuộc session, không CloseHandle.
+- GUID cố định, journal versioned wintun-state.json ghi bền trước tạo adapter; ownership phải khớp identity thực tế. State hỏng/không rõ ownership: từ chối xóa. Recovery idempotent, chỉ adapter DualRoute; không xóa driver dùng chung.
+- CloseAdapter của handle CreateAdapter gỡ thiết bị; handle OpenAdapter không có cùng quyền sở hữu. Cleanup phải xác minh adapter đã gỡ, giữ journal khi lỗi.
+- Không routing game, host route, default gateway, NAT, route cleanup, CLI cleanup hay recovery tổng thể Phase 3. Không tự commit/push theo yêu cầu triển khai 2B.
 
 ## Môi trường
 - Mọi project target .NET 10 (client: `net10.0-windows`). Không dùng NuGet mới nếu chưa hỏi.
